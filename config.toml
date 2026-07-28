@@ -1,0 +1,15 @@
+[theme]
+# 메인 포인트 컬러 (버튼, 슬라이더 등 - 신뢰감을 주는 딥블루)
+primaryColor = "#1f77b4"
+
+# 전체 배경색 (깔끔한 화이트톤)
+backgroundColor = "#ffffff"
+
+# 사이드바 및 보조 배경색 (연한 회색)
+secondaryBackgroundColor = "#f0f2f6"
+
+# 텍스트 색상 (진한 회색/검정)
+textColor = "#262730"
+
+# 폰트 스타일 (깔끔한 고딕/산세리프 계열)
+font = "sans serif"
