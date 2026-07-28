@@ -3,6 +3,8 @@ import io
 import json
 import glob
 import base64
+import time
+import requests
 import pandas as pd
 import numpy as np
 import folium
@@ -13,6 +15,7 @@ from PIL import Image
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_option_menu import option_menu
+from streamlit_lottie import st_lottie
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -22,12 +25,42 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # ==========================================
-# 1. 페이지 기본 설정 (스트림릿 코드는 반드시 이게 최상단에 와야 합니다)
+# 1. 페이지 기본 설정
 # ==========================================
 st.set_page_config(page_title="천안시 스마트 악취 방어 시스템", page_icon="🚁", layout="wide")
 
 # ==========================================
-# 2. 프리텐다드 폰트 및 모던 UI CSS 강제 주입
+# 2. 멋진 인트로 화면 (Splash Screen) 로직
+# ==========================================
+def load_lottieurl(url: str):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+# 세션을 이용해 접속 시 딱 1번만 인트로가 나오게 설정
+if 'intro_played' not in st.session_state:
+    st.session_state['intro_played'] = False
+
+if not st.session_state['intro_played']:
+    # 레이더/스캔 느낌의 Lottie 애니메이션
+    lottie_url = "https://lottie.host/80aeb8c3-4fdb-4e1b-8531-1e9a3b68019b/6xGq5iRjN5.json"
+    lottie_json = load_lottieurl(lottie_url)
+    
+    # 인트로 화면 중앙 정렬 및 렌더링
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #1f77b4;'>🚁 천안-충남 스마트 악취 방어 시스템</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: gray;'>시스템을 초기화하고 실시간 데이터를 연동 중입니다...</h4>", unsafe_allow_html=True)
+    
+    if lottie_json:
+        st_lottie(lottie_json, height=300, key="intro_anim")
+    
+    time.sleep(2.5) # 2.5초간 인트로 감상 시간
+    st.session_state['intro_played'] = True
+    st.rerun() # 화면을 부드럽게 새로고침하여 메인 대시보드로 진입!
+
+# ==========================================
+# 3. 프리텐다드 폰트 및 🌟 탭 전환 애니메이션 추가
 # ==========================================
 st.markdown("""
 <style>
@@ -43,19 +76,26 @@ st.markdown("""
     /* 전체 배경을 아주 연한 회색으로 변경 (카드가 돋보이게) */
     .stApp {background-color: #F5F7FA;}
     
-    /* 콘텐츠를 감싸는 예쁜 하얀색 카드 클래스 만들기 */
+    /* 🌟 스르륵 올라오면서 켜지는 애니메이션 정의 */
+    @keyframes fadeUp {
+        0% { opacity: 0; transform: translateY(30px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* 🌟 콘텐츠를 감싸는 예쁜 하얀색 카드 클래스 (애니메이션 강제 적용) */
     .modern-card {
         background-color: #FFFFFF;
         padding: 2rem;
         border-radius: 15px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         margin-bottom: 2rem;
+        animation: fadeUp 0.6s ease-out forwards;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 환경 변수 및 API 설정
+# 4. 환경 변수 및 API 설정
 # ==========================================
 load_dotenv()
 client = OpenAI(
@@ -77,7 +117,7 @@ ODOR_WEIGHT = {
 }
 
 # ==========================================
-# 4. 데이터 로드 및 RAG 시스템 초기화 (캐싱)
+# 5. 데이터 로드 및 RAG 시스템 초기화 (캐싱)
 # ==========================================
 @st.cache_resource
 def init_rag_system(folder_path="rules"):
@@ -144,7 +184,7 @@ with st.spinner('실제 공공데이터를 기반으로 공간 분석을 수행 
     df_farm, df_impact = load_real_data()
 
 # ==========================================
-# 5. UI 레이아웃 및 메뉴 구성
+# 6. UI 레이아웃 및 메뉴 구성
 # ==========================================
 st.markdown('<h1 style="text-align: center; color: #1f77b4; margin-bottom: 20px;">🚁 천안-충남 광역 스마트 악취 통합 모니터링 플랫폼</h1>', unsafe_allow_html=True)
 
@@ -205,7 +245,6 @@ if selected == "악취 영향권 지도":
             popup=f"{row['공동주택명']}<br>가장 가까운 축사: {row['최근접축사_거리(km)']:.2f}km"
         ).add_to(m)
     
-    # 지도를 감싸는 여백 추가
     st.markdown('<div class="modern-card">', unsafe_allow_html=True)
     st_folium(m, width="100%", height=600)
     st.markdown('</div>', unsafe_allow_html=True)
