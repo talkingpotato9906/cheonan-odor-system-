@@ -188,22 +188,32 @@ with st.spinner('실제 공공데이터를 기반으로 공간 분석을 수행 
 # ==========================================
 st.markdown('<h1 style="text-align: center; color: #1f77b4; margin-bottom: 20px;">🚁 천안-충남 광역 스마트 악취 통합 모니터링 플랫폼</h1>', unsafe_allow_html=True)
 
-# 복잡한 세션 저장 코드는 싹 지우고, 아래처럼 딱 깔끔하게만 남깁니다!
+menu_options = ["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"]
+
+# 💡 1. 현재 선택된 탭을 잊지 않도록 세션에 강제 저장
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "악취 영향권 지도"
+
+# 💡 2. 메뉴 생성 (default_index를 고정된 0이 아니라, 세션에 저장된 위치로 계속 맞춰줌)
 selected = option_menu(
     menu_title=None, 
-    options=["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"],
+    options=menu_options,
     icons=["map", "camera-reels", "bell", "chat-dots"],
     menu_icon="cast", 
-    default_index=0, # 💡 무조건 0으로 고정합니다! (바꾸지 마세요)
+    default_index=menu_options.index(st.session_state.active_tab), 
     orientation="horizontal",
-    key="main_menu", # 💡 이 이름표(key) 하나면 Streamlit이 완벽하게 상태를 기억합니다.
+    # (주의: 충돌을 피하기 위해 key 속성은 아예 삭제했습니다!)
     styles={
         "container": {"padding": "0!important", "background-color": "#FFFFFF", "box-shadow": "0 2px 5px rgba(0,0,0,0.05)", "border-radius": "10px"},
         "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "color": "#495057"},
         "nav-link-selected": {"background-color": "#1f77b4", "color": "white", "font-weight": "bold"},
     }
 )
-    
+
+# 💡 3. 핵심 해결책: 사용자가 탭을 클릭해서 값이 바뀌면, 즉시 상태를 저장하고 화면을 1회 강제 동기화!
+if selected != st.session_state.active_tab:
+    st.session_state.active_tab = selected
+    st.rerun()
     
 # ---------------------------------------------------------
 # 메뉴 1: 악취 영향권 지도
