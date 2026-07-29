@@ -188,31 +188,21 @@ with st.spinner('실제 공공데이터를 기반으로 공간 분석을 수행 
 # ==========================================
 st.markdown('<h1 style="text-align: center; color: #1f77b4; margin-bottom: 20px;">🚁 천안-충남 광역 스마트 악취 통합 모니터링 플랫폼</h1>', unsafe_allow_html=True)
 
-# --- 💡 탭 상태 저장을 위한 세션 추가 (버그 해결 핵심) ---
-if "current_tab_idx" not in st.session_state:
-    st.session_state.current_tab_idx = 0
-
-menu_list = ["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"]
-
-# 탭 대신 세련된 상단 네비게이션 바 사용
+# 복잡한 세션 저장 코드는 싹 지우고, 아래처럼 딱 깔끔하게만 남깁니다!
 selected = option_menu(
     menu_title=None, 
-    options=menu_list,
+    options=["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"],
     icons=["map", "camera-reels", "bell", "chat-dots"],
     menu_icon="cast", 
-    default_index=st.session_state.current_tab_idx, # 고정된 0 대신 세션 기억장치 연결
+    default_index=0, # 💡 무조건 0으로 고정합니다! (바꾸지 마세요)
     orientation="horizontal",
-    key="main_menu", # 고유 식별 키 부여 (필수)
+    key="main_menu", # 💡 이 이름표(key) 하나면 Streamlit이 완벽하게 상태를 기억합니다.
     styles={
         "container": {"padding": "0!important", "background-color": "#FFFFFF", "box-shadow": "0 2px 5px rgba(0,0,0,0.05)", "border-radius": "10px"},
         "nav-link": {"font-size": "16px", "text-align": "center", "margin":"0px", "color": "#495057"},
         "nav-link-selected": {"background-color": "#1f77b4", "color": "white", "font-weight": "bold"},
     }
 )
-
-# 현재 선택된 탭의 번호를 세션에 업데이트하여 파란색 불빛이 튕기지 않게 고정
-if selected:
-    st.session_state.current_tab_idx = menu_list.index(selected)
     
     
 # ---------------------------------------------------------
