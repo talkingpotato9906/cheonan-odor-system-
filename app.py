@@ -27,7 +27,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 # ==========================================
 # 1. 페이지 기본 설정 
 # ==========================================
-# 브라우저 탭 제목과 아이콘도 위성으로 변경
+# 브라우저 탭 제목과 아이콘을 나뭇잎으로 변경
 st.set_page_config(page_title="천안 스마트 악취 모니터링", page_icon="🌿", layout="wide")
 
 # ==========================================
@@ -47,8 +47,8 @@ if not st.session_state['intro_played']:
     lottie_json = load_lottieurl(lottie_url)
     
     st.markdown("<br><br><br><br>", unsafe_allow_html=True)
-    # 인트로 텍스트 변경
-    st.markdown("<h1 style='text-align: center; color: #3B82F6; font-weight: 800; letter-spacing: -1px;'>🛰️ 천안 스마트 악취 통합 모니터링</h1>", unsafe_allow_html=True)
+    # 인트로 텍스트의 이모지를 나뭇잎으로 변경
+    st.markdown("<h1 style='text-align: center; color: #3B82F6; font-weight: 800; letter-spacing: -1px;'>🌿 천안 스마트 악취 통합 모니터링</h1>", unsafe_allow_html=True)
     st.markdown("<h4 style='text-align: center; color: #6B7280; font-weight: 500;'>데이터를 동기화하고 있습니다...</h4>", unsafe_allow_html=True)
     
     if lottie_json:
@@ -167,8 +167,8 @@ with st.spinner('데이터를 불러오고 있습니다...'):
 # ==========================================
 # 5. UI 레이아웃 및 메뉴
 # ==========================================
-# 메인 제목 텍스트 변경
-st.markdown('<h1 style="text-align: center; color: #3B82F6; margin-bottom: 30px;">🛰️ 천안 스마트 악취 통합 모니터링</h1>', unsafe_allow_html=True)
+# 메인 제목 텍스트의 이모지도 나뭇잎으로 변경
+st.markdown('<h1 style="text-align: center; color: #3B82F6; margin-bottom: 30px;">🌿 천안 스마트 악취 통합 모니터링</h1>', unsafe_allow_html=True)
 
 menu_options = ["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"]
 
