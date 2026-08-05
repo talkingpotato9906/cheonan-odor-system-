@@ -25,12 +25,12 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # ==========================================
-# 1. 페이지 기본 설정 (가장 먼저)
+# 1. 페이지 기본 설정 
 # ==========================================
 st.set_page_config(page_title="천안시 스마트 악취 방어 시스템", page_icon="🚁", layout="wide")
 
 # ==========================================
-# 2. 인트로 화면 (깔끔한 화이트 테마)
+# 2. 인트로 화면
 # ==========================================
 def load_lottieurl(url: str):
     r = requests.get(url)
@@ -57,41 +57,34 @@ if not st.session_state['intro_played']:
     st.rerun()
 
 # ==========================================
-# 3. 🎨 [디자인 핵심] 완전한 Light Flat CSS
+# 3. 🎨 CSS 디자인 세팅
 # ==========================================
 st.markdown("""
 <style>
-    /* 폰트: 깔끔한 산세리프 폰트 강제 적용 (자간을 좁혀서 모던하게) */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     * { font-family: 'Pretendard', sans-serif; color: #111827; letter-spacing: -0.02em; }
     
-    /* 헤딩(제목) 스타일: 아주 두껍고 묵직하게 */
     h1, h2, h3 { font-weight: 800 !important; }
     
-    /* 쓸데없는 Streamlit 기본 요소(헤더, 푸터) 숨기기 */
     #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
     
-    /* 🌟 전체 배경: 아주 연한 회색 (하얀색 카드가 돋보이게 함) */
     .stApp { background-color: #F9FAFB; }
     
-    /* 🌟 플랫 카드: 그림자 절대 금지, 대신 또렷한 회색 테두리 적용 */
     .flat-card {
         background-color: #FFFFFF;
         padding: 2.5rem;
         border-radius: 12px;
-        border: 2px solid #E5E7EB; /* 그림자 대신 사용하는 테두리 */
+        border: 2px solid #E5E7EB;
         box-shadow: none !important; 
         margin-bottom: 2rem;
         transition: all 0.2s ease;
     }
     
-    /* 카드에 마우스를 올리면 테두리가 파란색으로 변하며 살짝 커짐 */
     .flat-card:hover {
         transform: scale(1.01);
         border-color: #3B82F6;
     }
 
-    /* 🌟 버튼: 그림자 없이 쨍한 파란색 솔리드 블록 */
     .stButton > button {
         background-color: #3B82F6 !important;
         color: #FFFFFF !important;
@@ -105,16 +98,15 @@ st.markdown("""
     }
     .stButton > button:hover {
         background-color: #2563EB !important;
-        transform: scale(1.03) !important; /* 클릭하고 싶게 튕겨오름 */
+        transform: scale(1.03) !important;
     }
     
-    /* 서브 텍스트용 회색 */
     .text-muted { color: #6B7280 !important; font-weight: 500; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. 환경 변수 및 API, 데이터 로드
+# 4. API 설정 및 데이터 처리
 # ==========================================
 load_dotenv()
 client = OpenAI(
@@ -171,17 +163,15 @@ with st.spinner('데이터를 불러오고 있습니다...'):
     df_farm, df_impact = load_real_data()
 
 # ==========================================
-# 5. UI 레이아웃 및 탭 고정 로직
+# 5. UI 레이아웃 및 메뉴
 # ==========================================
 st.markdown('<h1 style="text-align: center; color: #3B82F6; margin-bottom: 30px;">🚁 천안-충남 광역 스마트 악취 통합 모니터링</h1>', unsafe_allow_html=True)
 
 menu_options = ["악취 영향권 지도", "드론 비전 AI", "자동 경보 시스템", "대시민 챗봇"]
 
-# 탭 튕김 현상 방지를 위한 상태 고정
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "악취 영향권 지도"
 
-# 플랫한 스타일의 메뉴바 (그림자 제거, 테두리 추가)
 selected = option_menu(
     menu_title=None, 
     options=menu_options,
@@ -196,13 +186,12 @@ selected = option_menu(
     }
 )
 
-# 탭 이동 시 강제 동기화 (챗봇 튕김 방지)
 if selected != st.session_state.active_tab:
     st.session_state.active_tab = selected
     st.rerun()
 
 # ---------------------------------------------------------
-# 메뉴 1: 악취 영향권 지도
+# 메뉴 1: 악취 영향권 지도 (한국어 구글 맵 적용)
 # ---------------------------------------------------------
 if selected == "악취 영향권 지도":
     st.markdown(f'''
@@ -216,8 +205,14 @@ if selected == "악취 영향권 지도":
     ''', unsafe_allow_html=True)
     
     center_lat, center_lon = (df_impact['위도(lat)'].mean(), df_impact['경도(lon)'].mean()) if not df_impact.empty else (36.815, 127.113)
-    # 지도 스타일도 깔끔한 CartoDB positron(라이트 테마)로 강제 고정
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles='CartoDB positron')
+    
+    # 💡 지도 설정을 한국어(hl=ko) 구글 맵 타일로 변경하여 가독성을 극대화했습니다.
+    m = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=11, 
+        tiles="http://mt0.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}",
+        attr="Google Maps"
+    )
     
     heat_data = [[row['위도'], row['경도'], row['악취가중치']] for _, row in df_farm.iterrows()]
     HeatMap(heat_data, radius=20, blur=15, min_opacity=0.3, gradient={0.4: 'blue', 0.6: 'lime', 1.0: 'red'}).add_to(m)
@@ -228,9 +223,8 @@ if selected == "악취 영향권 지도":
     for _, row in df_impact.nlargest(150, '악취타격점수').iterrows():
         folium.CircleMarker([row['위도(lat)'], row['경도(lon)']], radius=3, color='blue', weight=1, fill=True, fill_color='cyan', fill_opacity=0.9, popup=f"{row['공동주택명']}").add_to(m)
     
-    st.markdown('<div class="flat-card">', unsafe_allow_html=True)
+    # 지도 영역을 감싸는 불필요한 HTML 태그를 제거했습니다 (빈 네모칸 방지)
     st_folium(m, width="100%", height=600)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 메뉴 2: 드론 비전 AI
@@ -245,7 +239,6 @@ elif selected == "드론 비전 AI":
     
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown('<div class="flat-card">', unsafe_allow_html=True)
         st.subheader("📸 1. 스카이뷰 업로드")
         aerial_file = st.file_uploader("수직 항공뷰 (1장)", type=['jpg', 'jpeg', 'png'])
         st.subheader("📸 2. 측면뷰 업로드")
@@ -255,7 +248,6 @@ elif selected == "드론 비전 AI":
         if side_files:
             cols = st.columns(len(side_files))
             for i, sf in enumerate(side_files): cols[i].image(sf, use_column_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
             
     with col2:
         if (aerial_file is not None) or (len(side_files) > 0):
@@ -321,7 +313,6 @@ elif selected == "자동 경보 시스템":
     </div>
     ''', unsafe_allow_html=True)
     
-    st.markdown('<div class="flat-card">', unsafe_allow_html=True)
     if 'alert_info' not in st.session_state: st.warning("⚠️ 먼저 [드론 비전 AI] 메뉴에서 문제점을 탐지해 주세요.")
     else:
         alert_context = st.session_state['alert_info']
@@ -339,7 +330,6 @@ elif selected == "자동 경보 시스템":
                     st.success("✅ 메시지 작성 완료")
                     st.markdown(message_res.choices[0].message.content)
                 except Exception as e: st.error(f"❌ 오류 발생: {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 메뉴 4: 대시민 AI 챗봇
@@ -352,7 +342,6 @@ elif selected == "대시민 챗봇":
     </div>
     ''', unsafe_allow_html=True)
     
-    st.markdown('<div class="flat-card">', unsafe_allow_html=True)
     if "chat_history" not in st.session_state: st.session_state.chat_history = [{"role": "assistant", "content": "안녕하십니까, 천안시청 악취통합관리센터입니다. 무엇을 도와드릴까요?"}]
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
@@ -372,4 +361,3 @@ elif selected == "대시민 챗봇":
                     message_placeholder.markdown(full_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": full_response})
                 except Exception as e: message_placeholder.error(f"오류: {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
