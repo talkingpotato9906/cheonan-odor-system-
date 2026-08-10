@@ -67,17 +67,6 @@ st.markdown("""
     #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
     .stApp { background-color: #F9FAFB; }
     
-    .flat-card {
-        background-color: #FFFFFF;
-        padding: 2.5rem;
-        border-radius: 12px;
-        border: 2px solid #E5E7EB;
-        box-shadow: none !important; 
-        margin-bottom: 2rem;
-        transition: all 0.2s ease;
-    }
-    .flat-card:hover { transform: scale(1.01); border-color: #3B82F6; }
-
     .stButton > button {
         background-color: #3B82F6 !important;
         color: #FFFFFF !important;
@@ -122,9 +111,10 @@ def load_data():
         return pd.DataFrame()
 
     df_farm = safe_read("천안시_가축사육업_정상영업_좌표완료_진짜최종.csv") 
-    
-    # 💡 여기서 아까 완벽하게 합친 최종 마스터 파일을 사용합니다!
     df_apt = safe_read("천안시_공동주택_최종마스터_좌표완료.csv") 
+
+    if not df_apt.empty:
+        df_apt = df_apt.dropna(subset=['공동주택명'])
 
     if not df_farm.empty:
         if '사육두수' not in df_farm.columns:
@@ -152,16 +142,21 @@ def get_live_weather(api_key):
     if not api_key: return None, None, "API 키가 없습니다."
     url = f"https://apihub.kma.go.kr/api/typ01/url/kma_sfctm2.php?stn=232&help=0&authKey={api_key}"
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200 and "ERR" not in response.text:
             lines = response.text.strip().split('\n')
             for line in reversed(lines):
                 if line.strip() and not line.startswith('#'):
                     data = line.split()
-                    if len(data) >= 4 and float(data[2]) != -9.0:
-                        return float(data[2]), float(data[3]), "천안(232) 최신 관측 성공"
-        return None, None, "데이터 오류"
-    except: return None, None, "통신 실패"
+                    if len(data) >= 4:
+                        w_dir = float(data[2])
+                        w_spd = float(data[3])
+                        if w_dir == -9.0 or w_spd == -9.0:
+                            w_dir, w_spd = 0.0, 0.0
+                        return w_dir, w_spd, "천안(232) 최신 관측 성공"
+        return None, None, "데이터 오류 (기상청 응답 에러)"
+    except: 
+        return None, None, "통신 실패 (서버 지연)"
 
 def calculate_haversine_and_bearing(lat1, lon1, lat2, lon2):
     rad_lat1, rad_lon1, rad_lat2, rad_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
@@ -240,7 +235,6 @@ with st.sidebar:
     st.markdown("### ☁️ 기상 컨트롤 패널")
     data_mode = st.radio("데이터 소스 선택", ["기상청 실시간 API", "수동 시뮬레이션"], index=0)
     
-    # 💡 .env 파일에서 기상청 API 키 자동 로드 (NVIDIA API KEY와 동일한 방식)
     default_kma_key = os.getenv("KMA_API_KEY", "")
     api_key = st.text_input("기상청 API 허브 인증키", value=default_kma_key, type="password")
     
@@ -272,16 +266,16 @@ df_impact_apt, df_farm_impact, df_top_farm = calculate_cii(df_farm_raw, df_apt_r
 
 st.markdown('<h1 style="text-align: center; color: #3B82F6; margin-bottom: 30px;">🌿 천안 스마트 악취 통합 모니터링</h1>', unsafe_allow_html=True)
 
-menu_options = ["실시간 악취 관제망", "드론 비전 AI 단속", "자동 경보 시스템", "인프라 및 정책 제언", "대시민 챗봇"]
+menu_options = ["실시간 악취 관제망", "드론 비전 AI 단속", "자동 경보 시스템", "인프라 및 정책 제언", "IoT 역추적 관제", "대시민 챗봇"]
 if "active_tab" not in st.session_state: st.session_state.active_tab = menu_options[0]
 
 selected = option_menu(
     menu_title=None, options=menu_options,
-    icons=["map", "camera-reels", "bell", "building", "chat-dots"],
+    icons=["map", "camera-reels", "bell", "building", "radar", "chat-dots"],
     menu_icon="cast", default_index=menu_options.index(st.session_state.active_tab), orientation="horizontal",
     styles={
         "container": {"padding": "0!important", "background-color": "#FFFFFF", "border": "2px solid #E5E7EB", "border-radius": "10px"},
-        "nav-link": {"font-size": "15px", "font-weight": "600", "text-align": "center", "margin":"5px", "color": "#6B7280"},
+        "nav-link": {"font-size": "14px", "font-weight": "600", "text-align": "center", "margin":"5px", "color": "#6B7280"},
         "nav-link-selected": {"background-color": "#3B82F6", "color": "white", "font-weight": "800", "border-radius": "6px"},
     }
 )
@@ -290,24 +284,18 @@ if selected != st.session_state.active_tab:
     st.rerun()
 
 # ---------------------------------------------------------
-# 메뉴 1: 실시간 악취 관제망 (팀원 확산모델 + 기존 히트맵)
+# 메뉴 1: 실시간 악취 관제망
 # ---------------------------------------------------------
 if selected == "실시간 악취 관제망":
-    st.markdown(f'''
-    <div class="flat-card">
-        <h2>🗺️ 실시간 대기 확산 및 주민 피해 지수(CII) 관제</h2>
-        <p class="text-muted">실시간 풍향({get_wind_direction_str(w_dir)}) 및 풍속({w_spd}m/s)을 바탕으로 악취의 이동 궤적과 아파트별 피해 규모를 시각화합니다.</p>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown("<h2>🗺️ 실시간 대기 확산 및 주민 피해 지수(CII) 관제</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p class='text-muted'>실시간 풍향({get_wind_direction_str(w_dir)}) 및 풍속({w_spd}m/s)을 바탕으로 악취의 이동 궤적과 아파트별 피해 규모를 시각화합니다.</p><hr>", unsafe_allow_html=True)
     
     if not df_impact_apt.empty and not df_top_farm.empty:
         m = folium.Map(location=[36.815, 127.113], zoom_start=11, tiles="http://mt0.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}", attr="Google Maps")
         
-        # 전체 농가 히트맵 배경 추가
         heat_data = [[float(row.get('위도',0)), float(row.get('경도',0)), float(row.get('Odor_Emission',1))] for _, row in df_farm_raw.iterrows() if not pd.isna(row.get('위도')) and float(row.get('위도',0))!=0]
         HeatMap(heat_data, radius=18, blur=15, min_opacity=0.2, gradient={0.4: 'blue', 0.6: 'lime', 1.0: 'red'}).add_to(m)
 
-        # 주요 농가 마커 및 확산 폴리곤
         for _, farm in df_top_farm.iterrows():
             f_lat, f_lon = float(farm.get('위도', 0)), float(farm.get('경도', 0))
             if f_lat == 0 or f_lon == 0 or pd.isna(f_lat): continue
@@ -321,23 +309,23 @@ if selected == "실시간 악취 관제망":
             p3 = [f_lat + length * math.cos(math.radians(plume_dir + angle_spread)), f_lon + length * math.sin(math.radians(plume_dir + angle_spread))]
             folium.Polygon(locations=[p1, p2, p3], color='red', fill=True, fill_opacity=0.15, weight=0).add_to(m)
 
-        # 피해 예상 아파트 (파란 점)
         for _, apt in df_impact_apt.head(50).iterrows():
             folium.CircleMarker(
                 location=[apt['위도'], apt['경도']], radius=4, color='blue', fill=True, fill_opacity=0.7,
                 tooltip=f"{apt['공동주택명']} (위험도: {apt['CII']}점 / {apt['위험등급']})"
             ).add_to(m)
 
-        st.markdown('<div class="flat-card">', unsafe_allow_html=True)
         st_folium(m, width="100%", height=550)
-        st.markdown('</div>', unsafe_allow_html=True)
         
-        # B2G 조기 알림
-        st.markdown('<div class="flat-card">', unsafe_allow_html=True)
-        st.subheader("🚨 실시간 방제단 출동 지시 (B2G)")
+        st.markdown("<br><h3>🚨 실시간 방제단 출동 지시 (B2G)</h3>", unsafe_allow_html=True)
         col_table, col_btn = st.columns([4, 1])
         with col_table:
-            st.dataframe(df_impact_apt[['공동주택명', '세대수', 'CII', '위험등급', '원인농가']].head(5), use_container_width=True)
+            st.dataframe(
+                df_impact_apt[['공동주택명', '세대수', 'CII', '위험등급', '원인농가']], 
+                use_container_width=True,
+                height=250,
+                hide_index=True
+            )
         with col_btn:
             st.write("")
             if st.button("🚨 상위 5개 구역\n방제단 출동 발송", use_container_width=True):
@@ -347,18 +335,13 @@ if selected == "실시간 악취 관제망":
                     st.toast(f"✅ {row['원인농가']} 인근 {row['공동주택명']} 방제단 출동 지시 발송!")
                     time.sleep(0.3)
                 st.success("조기 알림 발송 완료!")
-        st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 메뉴 2: 드론 비전 AI 단속
 # ---------------------------------------------------------
 elif selected == "드론 비전 AI 단속":
-    st.markdown('''
-    <div class="flat-card">
-        <h2>🚁 실시간 다각도 드론 영상 이상 징후 자동 검토</h2>
-        <p class="text-muted">드론 이미지를 업로드하면 비전 AI가 문제점을 찾고, RAG 시스템이 조례와 법령을 자동 매칭합니다.</p>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown("<h2>🚁 실시간 다각도 드론 영상 이상 징후 자동 검토</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='text-muted'>드론 이미지를 업로드하면 비전 AI가 문제점을 찾고, RAG 시스템이 조례와 법령을 자동 매칭합니다.</p><hr>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -422,21 +405,16 @@ elif selected == "드론 비전 AI 단속":
                         temperature=0.2, max_tokens=1500
                     )
                     st.success("✨ 자동 매칭 단속 보고서 완성!")
-                    st.markdown(f'<div class="flat-card">{final_res.choices[0].message.content}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px;">{final_res.choices[0].message.content}</div>', unsafe_allow_html=True)
                 except Exception as e: st.error(f"❌ 오류 발생: {e}")
 
 # ---------------------------------------------------------
 # 메뉴 3: 자동 경보 시스템 (대시민 B2C)
 # ---------------------------------------------------------
 elif selected == "자동 경보 시스템":
-    st.markdown(f'''
-    <div class="flat-card">
-        <h2>📢 대시민 상황 전파 및 알림 시스템 (B2C)</h2>
-        <p class="text-muted">현재 실시간 풍향 <b>({get_wind_direction_str(w_dir)})</b> 및 드론 AI 적발 결과를 종합하여 주민 맞춤형 긴급 안내를 자동 생성합니다.</p>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown("<h2>📢 대시민 상황 전파 및 알림 시스템 (B2C)</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p class='text-muted'>현재 실시간 풍향 <b>({get_wind_direction_str(w_dir)})</b> 및 드론 AI 적발 결과를 종합하여 주민 맞춤형 긴급 안내를 자동 생성합니다.</p><hr>", unsafe_allow_html=True)
     
-    st.markdown('<div class="flat-card">', unsafe_allow_html=True)
     if 'alert_info' not in st.session_state: st.warning("⚠️ 먼저 [드론 비전 AI 단속] 메뉴에서 위반 사항을 탐지해 주세요.")
     else:
         alert_context = st.session_state['alert_info']
@@ -452,23 +430,17 @@ elif selected == "자동 경보 시스템":
                         temperature=0.2, max_tokens=1000
                     )
                     st.success("✅ 메시지 작성 완료")
-                    st.markdown(message_res.choices[0].message.content)
+                    st.markdown(f'<div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px;">{message_res.choices[0].message.content}</div>', unsafe_allow_html=True)
                 except Exception as e: st.error(f"❌ 오류 발생: {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 메뉴 4: 인프라 및 정책 제언
 # ---------------------------------------------------------
 elif selected == "인프라 및 정책 제언":
-    st.markdown('''
-    <div class="flat-card">
-        <h2>🏛️ 과학적 예산 집행: 센서 입지 및 핀셋 지원 전략</h2>
-        <p class="text-muted">데이터 시뮬레이션을 통해 도출된 핵심 타겟을 기반으로 행정 인프라 최적화를 제안합니다.</p>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown("<h2>🏛️ 과학적 예산 집행: 센서 입지 및 핀셋 지원 전략</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='text-muted'>데이터 시뮬레이션을 통해 도출된 핵심 타겟을 기반으로 행정 인프라 최적화를 제안합니다.</p><hr>", unsafe_allow_html=True)
 
     if not df_impact_apt.empty and not df_farm_raw.empty:
-        st.markdown('<div class="flat-card">', unsafe_allow_html=True)
         st.subheader("📍 스마트 모니터링 센서 최적 설치 위치 제안")
         
         m2 = folium.Map(location=[36.815, 127.113], zoom_start=11, tiles='http://mt0.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}', attr='Google')
@@ -486,29 +458,126 @@ elif selected == "인프라 및 정책 제언":
             folium.Marker(location=[apt['위도'], apt['경도']], icon=folium.Icon(color='purple', icon='home'), tooltip=f"방역 벨트: {apt['공동주택명']}").add_to(m2)
             
         st_folium(m2, width="100%", height=450)
-        st.markdown('</div>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         with col1:
             st.info("🎯 **최우선 저감 인프라(센서/포집기) 설치 권장 농가 Top 5**")
             target_farms_df.columns = ['농가명', '직접 피해 유발 횟수']
-            st.dataframe(target_farms_df, use_container_width=True)
+            st.dataframe(target_farms_df, use_container_width=True, hide_index=True)
         with col2:
             st.error("🚧 **최우선 방역 벨트 권장 구역 (Top 5 공동주택)**")
-            st.dataframe(df_impact_apt[['공동주택명', '원인농가', 'CII', '위험등급']].head(5), use_container_width=True)
+            st.dataframe(df_impact_apt[['공동주택명', '원인농가', 'CII', '위험등급']].head(5), use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# 메뉴 5: 대시민 챗봇
+# 💡 NEW 메뉴 5: IoT 역추적 관제 (확률 계산 & 드론 파이프라인)
+# ---------------------------------------------------------
+elif selected == "IoT 역추적 관제":
+    st.markdown("<h2>📡 IoT 센서 기반 원인 농가 역추적 (Reverse Tracking)</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='text-muted'>특정 지점(센서)에서 악취가 감지되었을 때, 역확산 모델링 및 사육두수 가중치를 결합하여 최우선 발원 확률을 산출하고 드론을 출동시킵니다.</p><hr>", unsafe_allow_html=True)
+
+    if not df_impact_apt.empty and not df_farm_raw.empty:
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            st.subheader("⚙️ 센서 관측 정보")
+            sensor_locations = df_impact_apt.head(5)['공동주택명'].tolist()
+            selected_sensor = st.selectbox("경보 발생 센서 위치 (아파트)", sensor_locations)
+            odor_level = st.slider("감지된 악취 농도 (OU)", 0, 100, 45)
+            
+            sensor_row = df_impact_apt[df_impact_apt['공동주택명'] == selected_sensor].iloc[0]
+            s_lat, s_lon = float(sensor_row['위도']), float(sensor_row['경도'])
+            
+            st.info(f"📍 **센서 위치:**\n{selected_sensor}\n\n🌬️ **유입 풍향:**\n{get_wind_direction_str(w_dir)} ({w_dir}°)\n\n💨 **유입 풍속:**\n{w_spd} m/s")
+            
+        with col2:
+            m4 = folium.Map(location=[s_lat, s_lon], zoom_start=12, tiles='http://mt0.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}', attr='Google')
+            
+            folium.Marker(location=[s_lat, s_lon], icon=folium.Icon(color='purple', icon='tower'), tooltip=f"🚨 악취 감지 센서 ({selected_sensor})").add_to(m4)
+            
+            reverse_dir = w_dir
+            angle_spread = 25 
+            length = 0.045 
+            
+            p1 = [s_lat, s_lon]
+            p2 = [s_lat + length * math.cos(math.radians(reverse_dir - angle_spread)), s_lon + length * math.sin(math.radians(reverse_dir - angle_spread))]
+            p3 = [s_lat + length * math.cos(math.radians(reverse_dir + angle_spread)), s_lon + length * math.sin(math.radians(reverse_dir + angle_spread))]
+            
+            folium.Polygon(locations=[p1, p2, p3], color='purple', fill=True, fill_opacity=0.2, weight=1, tooltip="악취 발원지 역추적 영역 (확률 기반)").add_to(m4)
+            
+            suspects = []
+            total_score = 0.0
+            
+            for _, farm in df_farm_raw.iterrows():
+                f_lat, f_lon = float(get_scalar(farm.get('위도', 0))), float(get_scalar(farm.get('경도', 0)))
+                if f_lat == 0 or f_lon == 0 or pd.isna(f_lat): continue
+                
+                dist, bearing = calculate_haversine_and_bearing(s_lat, s_lon, f_lat, f_lon)
+                angle_diff = abs((bearing - reverse_dir + 180) % 360 - 180)
+                
+                if dist <= 5.0 and angle_diff <= angle_spread:
+                    emission = float(get_scalar(farm.get('Odor_Emission', 0)))
+                    if emission <= 0: emission = 10 
+                    
+                    # 배출량(사육두수 가중치) 대비 거리의 역제곱 법칙으로 발원 점수 산출
+                    score = emission / (max(dist, 0.1) ** 2)
+                    
+                    suspects.append({
+                        '용의 농가명': farm.get('농가식별명', '미상'),
+                        '주사육업종': farm.get('주사육업종', '미상'),
+                        '사육두수': int(farm.get('사육두수', 0)),
+                        '추정 거리(km)': round(dist, 2),
+                        '_score': score,
+                        'lat': f_lat,
+                        'lon': f_lon
+                    })
+                    total_score += score
+            
+            if suspects:
+                # 점수를 백분율(확률)로 변환하고 내림차순 정렬
+                for s in suspects:
+                    s['발원 확률(%)'] = round((s['_score'] / total_score) * 100, 1)
+                suspects = sorted(suspects, key=lambda x: x['발원 확률(%)'], reverse=True)
+                
+                for i, s in enumerate(suspects):
+                    if i == 0: # 1순위 타겟 (드론 마커)
+                        folium.Marker(
+                            location=[s['lat'], s['lon']],
+                            icon=folium.Icon(color='red', icon='plane'),
+                            tooltip=f"🚁 최우선 타겟: {s['용의 농가명']} (확률: {s['발원 확률(%)']}%)"
+                        ).add_to(m4)
+                    else:
+                        folium.CircleMarker(
+                            location=[s['lat'], s['lon']], radius=6, color='orange', fill=True, fill_opacity=0.8,
+                            tooltip=f"⚠️ 용의 농가: {s['용의 농가명']} (확률: {s['발원 확률(%)']}%)"
+                        ).add_to(m4)
+            else:
+                for _, farm in df_farm_raw.iterrows():
+                    f_lat, f_lon = float(get_scalar(farm.get('위도', 0))), float(get_scalar(farm.get('경도', 0)))
+                    if f_lat != 0 and f_lon != 0 and not pd.isna(f_lat):
+                        folium.CircleMarker(location=[f_lat, f_lon], radius=2, color='gray', fill=True, fill_opacity=0.3).add_to(m4)
+                    
+            st_folium(m4, width="100%", height=450)
+            
+            if suspects:
+                top_target = suspects[0]
+                st.error(f"🚨 **역추적 분석 완료:** 센서 풍상측 역확산 영역 내 총 **{len(suspects)}개**의 농가가 식별되었습니다.")
+                st.warning(f"🚁 **최우선 드론 정찰 타겟:** **{top_target['용의 농가명']}** (발원 확률: {top_target['발원 확률(%)']}%, 거리: {top_target['추정 거리(km)']}km)\n\n상단 메뉴의 **[드론 비전 AI 단속]** 탭으로 이동하여 현장 영상을 업로드하고 AI 검증 및 행정 처분 절차를 진행해 주세요.")
+                
+                for s in suspects:
+                    del s['_score']; del s['lat']; del s['lon']
+                
+                suspect_df = pd.DataFrame(suspects)
+                st.dataframe(suspect_df, use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ 현재 기상 조건의 역추적 경로(풍상측 5km 이내)에 식별된 농가가 없습니다. 타 지역구 유입 가능성을 배제할 수 없습니다.")
+
+# ---------------------------------------------------------
+# 메뉴 6: 대시민 챗봇
 # ---------------------------------------------------------
 elif selected == "대시민 챗봇":
-    st.markdown('''
-    <div class="flat-card">
-        <h2>💬 대시민 실시간 악취 민원 챗봇</h2>
-        <p class="text-muted">현재 상황과 대피 요령, 민원 접수 등에 대해 자유롭게 물어보세요!</p>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.markdown("<h2>💬 대시민 실시간 악취 민원 챗봇</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='text-muted'>현재 상황과 대피 요령, 민원 접수 등에 대해 자유롭게 물어보세요!</p><hr>", unsafe_allow_html=True)
     
-    st.markdown('<div class="flat-card">', unsafe_allow_html=True)
     if "chat_history" not in st.session_state: st.session_state.chat_history = [{"role": "assistant", "content": "안녕하십니까, 천안시청 악취통합관리센터입니다. 현재 풍향 및 모니터링 정보를 바탕으로 무엇을 도와드릴까요?"}]
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
@@ -529,4 +598,3 @@ elif selected == "대시민 챗봇":
                     message_placeholder.markdown(full_response)
                     st.session_state.chat_history.append({"role": "assistant", "content": full_response})
                 except Exception as e: message_placeholder.error(f"오류: {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
