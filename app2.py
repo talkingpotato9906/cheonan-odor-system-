@@ -202,7 +202,7 @@ def calculate_cii(df_farm, df_apt, wind_dir, wind_speed):
                 max_contribution = farm_contribution
                 top_farm_name = str(get_scalar(farm.get('농가식별명', '미상 농가')))
 
-        cii_raw = float(total_oei * apt_households)
+        cii_raw = float(total_oei * math.log10(apt_households + 1))
         if cii_raw > 0:
             apt_name = str(get_scalar(apt.get('공동주택명', '미상 아파트')))
             apt_cii_list.append({ '공동주택명': apt_name, '세대수': int(apt_households), 'CII_Raw': cii_raw, '위도': apt_lat, '경도': apt_lon, '원인농가': top_farm_name })
