@@ -263,8 +263,6 @@ with st.sidebar:
     st.markdown("### ☁️ 기상 컨트롤 패널")
     data_mode = st.radio("데이터 소스 선택", ["기상청 실시간 API", "수동 시뮬레이션"], index=0)
     
-    default_kma_key = os.getenv("KMA_API_KEY", "")
-    api_key = st.text_input("기상청 API 허브 인증키", value=default_kma_key, type="password")
     
     w_dir, w_spd = 103.0, 2.5
     if data_mode == "기상청 실시간 API":
