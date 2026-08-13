@@ -142,13 +142,16 @@ def load_data():
         df_farm = df_farm.dropna(subset=['농가식별명'])
         df_farm = df_farm[~df_farm['농가식별명'].astype(str).str.contains('합계|총계|미상')]
         
+        # 💡 [핵심 방어벽 2] 사육두수 추출 버그 패치 ('사육면적' 제외)
         if '사육두수' not in df_farm.columns:
-            headcount_cols = [c for c in df_farm.columns if '사육' in c or '두수' in c]
+            headcount_cols = [c for c in df_farm.columns if '두수' in c]
+            if not headcount_cols:
+                headcount_cols = [c for c in df_farm.columns if '사육' in c and '면적' not in c]
             df_farm['사육두수'] = df_farm[headcount_cols[0]] if headcount_cols else 1000
         
         df_farm['사육두수'] = df_farm['사육두수'].apply(lambda x: float(str(x).replace(',', '')) if pd.notnull(x) else 0.0)
         
-        # 💡 [핵심 방어벽 2] 사육두수가 0인 '폐업/유령 장소' 완벽 제거
+        # 💡 [핵심 방어벽 3] 사육두수가 0인 '폐업/유령 장소' 완벽 제거
         df_farm = df_farm[df_farm['사육두수'] > 0]
         
         species_weights = { '돼지': 10.9, '젖소': 0.6, '소': 0.4, '한우': 0.4, '닭': 0.2, '개': 2.0, '오리': 0.2 }
@@ -263,10 +266,10 @@ with st.sidebar:
     st.markdown("### ☁️ 기상 컨트롤 패널")
     data_mode = st.radio("데이터 소스 선택", ["기상청 실시간 API", "수동 시뮬레이션"], index=0)
     
-    
+    # 💡 Streamlit Secrets에서 API 키를 안전하게 직접 가져오도록 변경
     w_dir, w_spd = 103.0, 2.5
     if data_mode == "기상청 실시간 API":
-        api_dir, api_spd, api_msg = get_live_weather(api_key)
+        api_dir, api_spd, api_msg = get_live_weather(os.getenv("KMA_API_KEY"))
         if api_dir is not None:
             w_dir, w_spd = api_dir, api_spd
             st.success(f"✅ {api_msg}")
