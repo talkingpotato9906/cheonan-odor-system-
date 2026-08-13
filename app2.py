@@ -11,6 +11,7 @@ import numpy as np
 import folium
 from folium.plugins import HeatMap
 from PIL import Image
+from datetime import datetime
 
 import streamlit as st
 from streamlit_folium import st_folium
@@ -25,9 +26,23 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # ==========================================
-# 1. 페이지 기본 설정 
+# 1. 페이지 기본 설정 & 로컬 DB 함수
 # ==========================================
 st.set_page_config(page_title="천안 스마트 악취 모니터링", page_icon="🌿", layout="wide")
+
+HISTORY_DB_FILE = "farm_history_db.json"
+
+def load_farm_history():
+    if os.path.exists(HISTORY_DB_FILE):
+        with open(HISTORY_DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_farm_history(farm_name, data):
+    history = load_farm_history()
+    history[farm_name] = data
+    with open(HISTORY_DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=4)
 
 # ==========================================
 # 2. 인트로 화면 (Flat Design)
@@ -113,15 +128,28 @@ def load_data():
     df_farm = safe_read("천안시_가축사육업_정상영업_좌표완료_진짜최종.csv") 
     df_apt = safe_read("천안시_공동주택_최종마스터_좌표완료.csv") 
 
+    # 1. 공동주택 결측치 및 합계 행 제거
     if not df_apt.empty:
         df_apt = df_apt.dropna(subset=['공동주택명'])
+        df_apt = df_apt[~df_apt['공동주택명'].astype(str).str.contains('합계|총계')]
 
     if not df_farm.empty:
+        # 2. 농가명 컬럼 지정
+        farm_name_col = [c for c in df_farm.columns if '사업장명' in c or '농가' in c]
+        df_farm['농가식별명'] = df_farm[farm_name_col[0]] if farm_name_col else "미상 농가"
+        
+        # 💡 [핵심 방어벽 1] 이름 없는 빈칸, '합계', '총계' 등 이상한 장소 제거
+        df_farm = df_farm.dropna(subset=['농가식별명'])
+        df_farm = df_farm[~df_farm['농가식별명'].astype(str).str.contains('합계|총계|미상')]
+        
         if '사육두수' not in df_farm.columns:
             headcount_cols = [c for c in df_farm.columns if '사육' in c or '두수' in c]
             df_farm['사육두수'] = df_farm[headcount_cols[0]] if headcount_cols else 1000
         
         df_farm['사육두수'] = df_farm['사육두수'].apply(lambda x: float(str(x).replace(',', '')) if pd.notnull(x) else 0.0)
+        
+        # 💡 [핵심 방어벽 2] 사육두수가 0인 '폐업/유령 장소' 완벽 제거
+        df_farm = df_farm[df_farm['사육두수'] > 0]
         
         species_weights = { '돼지': 10.9, '젖소': 0.6, '소': 0.4, '한우': 0.4, '닭': 0.2, '개': 2.0, '오리': 0.2 }
         species_col = [c for c in df_farm.columns if '업종' in c or '축종' in c]
@@ -133,8 +161,6 @@ def load_data():
             df_farm['축종가중치'] = 1.0
             
         df_farm['Odor_Emission'] = df_farm['사육두수'] * df_farm['축종가중치']
-        farm_name_col = [c for c in df_farm.columns if '사업장명' in c or '농가' in c]
-        df_farm['농가식별명'] = df_farm[farm_name_col[0]] if farm_name_col else "미상 농가"
         
     return df_farm, df_apt
 
@@ -202,7 +228,9 @@ def calculate_cii(df_farm, df_apt, wind_dir, wind_speed):
                 max_contribution = farm_contribution
                 top_farm_name = str(get_scalar(farm.get('농가식별명', '미상 농가')))
 
+        # 💡 로그 보정(Scaling) 적용
         cii_raw = float(total_oei * math.log10(apt_households + 1))
+        
         if cii_raw > 0:
             apt_name = str(get_scalar(apt.get('공동주택명', '미상 아파트')))
             apt_cii_list.append({ '공동주택명': apt_name, '세대수': int(apt_households), 'CII_Raw': cii_raw, '위도': apt_lat, '경도': apt_lon, '원인농가': top_farm_name })
@@ -340,12 +368,25 @@ if selected == "실시간 악취 관제망":
 # 메뉴 2: 드론 비전 AI 단속
 # ---------------------------------------------------------
 elif selected == "드론 비전 AI 단속":
-    st.markdown("<h2>🚁 실시간 다각도 드론 영상 이상 징후 자동 검토</h2>", unsafe_allow_html=True)
-    st.markdown("<p class='text-muted'>드론 이미지를 업로드하면 비전 AI가 문제점을 찾고, RAG 시스템이 조례와 법령을 자동 매칭합니다.</p><hr>", unsafe_allow_html=True)
+    st.markdown("<h2>🚁 실시간 드론 AI 단속 및 건축물 변경 이력 검증</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='text-muted'>대상 농가를 선택하고 드론 이미지를 업로드하면, 과거 분석 이력과 현재 상태를 비교하여 불법 증축 및 법적 위반 사항을 자동 적발합니다.</p><hr>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📸 1. 스카이뷰 업로드")
+        farm_list = df_farm_raw['농가식별명'].dropna().unique().tolist()
+        default_farm = st.session_state.get('target_farm', farm_list[0]) if st.session_state.get('target_farm') in farm_list else farm_list[0]
+        
+        selected_farm = st.selectbox("🎯 단속 및 검증 대상 농가 선택", farm_list, index=farm_list.index(default_farm))
+        
+        history_db = load_farm_history()
+        past_data = history_db.get(selected_farm, None)
+        
+        if past_data:
+            st.info(f"📂 **[{past_data['date']}] 과거 단속 이력 존재:**\n\n탐지 내역: {', '.join(past_data['detected_objects'])} (위험도: {past_data['risk_level']})")
+        else:
+            st.warning("📂 **과거 단속 이력 없음:** 본 촬영이 기준(Baseline) 데이터로 아카이빙됩니다.")
+
+        st.subheader("📸 1. 스카이뷰 업로드 (현재 상태)")
         aerial_file = st.file_uploader("수직 항공뷰 (1장)", type=['jpg', 'jpeg', 'png'])
         st.subheader("📸 2. 측면뷰 업로드")
         side_files = st.file_uploader("건물 측면/환풍구 (여러 장)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
@@ -357,8 +398,8 @@ elif selected == "드론 비전 AI 단속":
             
     with col2:
         if (aerial_file is not None) or (len(side_files) > 0):
-            if st.button("🚀 AI 정밀 단속 및 법적 검토 실행", use_container_width=True):
-                with st.spinner('비전 AI 분석 중...'):
+            if st.button("🚀 AI 정밀 단속 및 시계열 변화 검토 실행", use_container_width=True):
+                with st.spinner('비전 AI로 현재 건축물 및 시설 상태 분석 중...'):
                     images_to_merge = []
                     if aerial_file: images_to_merge.append(Image.open(aerial_file).convert('RGB'))
                     for sf in side_files: images_to_merge.append(Image.open(sf).convert('RGB'))
@@ -373,38 +414,46 @@ elif selected == "드론 비전 AI 단속":
                     buffered = io.BytesIO()
                     collage.save(buffered, format="JPEG")
                     final_base64_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                    st.image(collage, caption="[AI 분석용 병합 데이터]", use_column_width=True)
+                    st.image(collage, caption="[현재 AI 분석용 병합 데이터]", use_column_width=True)
 
                 try:
                     vision_res = client.chat.completions.create(
                         model="meta/llama-3.2-11b-vision-instruct", 
                         messages=[
                             {"role": "system", "content": "You are a strict JSON output machine."},
-                            {"role": "user", "content": [{"type": "text", "text": "문제점을 찾고 JSON 포맷 {\"detected_objects\":[], \"risk_level\":\"7\", \"summary_keyword\":\"\"} 으로 응답해."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{final_base64_image}"}}]}
+                            {"role": "user", "content": [{"type": "text", "text": "건축물 구조, 가설 천막, 분뇨 처리 시설의 문제점을 찾고 JSON 포맷 {\"detected_objects\":[], \"risk_level\":\"7\", \"summary_keyword\":\"\"} 으로 응답해."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{final_base64_image}"}}]}
                         ], temperature=0.3, max_tokens=500
                     )
                     raw_vision_text = vision_res.choices[0].message.content
                     import re; match = re.search(r'\{.*\}', raw_vision_text, re.DOTALL)
-                    vision_data = json.loads(match.group(0)) if match else {"detected_objects": ["노후 축사 및 분뇨 방치 의심"], "risk_level": "7", "summary_keyword": "가축분뇨 방치"}
+                    vision_data = json.loads(match.group(0)) if match else {"detected_objects": ["불법 가설건축물(천막) 및 분뇨 방치 의심"], "risk_level": "8", "summary_keyword": "가축분뇨 방치 불법증축"}
 
                     detected_items = vision_data.get("detected_objects", ["노후 축사 의심"])
                     risk = vision_data.get("risk_level", "5")
                     
-                    st.info(f"🔍 **탐지 결과**: {', '.join(detected_items)} (위험도: {risk}/10)")
+                    st.info(f"🔍 **현재 탐지 결과**: {', '.join(detected_items)} (위험도: {risk}/10)")
                     st.session_state['alert_info'] = f"발견된 문제: {', '.join(detected_items)} / 위험도: {risk}/10"
                     
-                    with st.spinner('RAG 시스템 법령 검색 중...'):
+                    vision_data['date'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    save_farm_history(selected_farm, vision_data)
+                    
+                    with st.spinner('RAG 시스템 법령 검색 및 과거 데이터 대조 중...'):
                         try:
-                            docs = init_rag_system().as_retriever(search_kwargs={"k": 2}).invoke(f"가축분뇨 {vision_data.get('summary_keyword', '')} 위반 행정처분")
+                            docs = init_rag_system().as_retriever(search_kwargs={"k": 2}).invoke(f"가축분뇨 {vision_data.get('summary_keyword', '')} 불법건축물 위반 행정처분")
                             legal_context = "\n\n".join([doc.page_content for doc in docs])
-                        except: legal_context = "가축사육 제한 조례 적용"
+                        except: legal_context = "건축법 및 가축분뇨법 제한 조례 적용"
+                    
+                    if past_data:
+                        prompt_msg = f"해당 농가의 과거 단속 데이터는 [{', '.join(past_data['detected_objects'])}] 였습니다. 그런데 현재 드론 데이터에서는 [{', '.join(detected_items)}] 가 탐지되었습니다. 이 두 가지를 비교하여 '과거에 없던 불법 증축물'이나 '악화된 환경'에 초점을 맞추어 변화된 점을 지적하고, RAG 법령({legal_context})을 근거로 법적 위반 여부 및 행정처분 공문 보고서를 작성하라."
+                    else:
+                        prompt_msg = f"AI 탐지 내용({', '.join(detected_items)}, 위험도 {risk})과 RAG 데이터({legal_context})를 종합하여 단속 보고서를 작성하라."
 
                     final_res = client.chat.completions.create(
                         model="meta/llama-3.1-70b-instruct",
-                        messages=[{"role": "user", "content": f"AI 탐지 내용({', '.join(detected_items)}, 위험도 {risk})과 RAG 데이터({legal_context})를 종합하여 단속 보고서를 작성하라."}],
+                        messages=[{"role": "user", "content": prompt_msg}],
                         temperature=0.2, max_tokens=1500
                     )
-                    st.success("✨ 자동 매칭 단속 보고서 완성!")
+                    st.success("✨ 시계열 변화 대조 및 자동 매칭 단속 보고서 완성!")
                     st.markdown(f'<div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px;">{final_res.choices[0].message.content}</div>', unsafe_allow_html=True)
                 except Exception as e: st.error(f"❌ 오류 발생: {e}")
 
@@ -469,7 +518,7 @@ elif selected == "인프라 및 정책 제언":
             st.dataframe(df_impact_apt[['공동주택명', '원인농가', 'CII', '위험등급']].head(5), use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# 💡 NEW 메뉴 5: IoT 역추적 관제 (확률 계산 & 드론 파이프라인)
+# 메뉴 5: IoT 역추적 관제
 # ---------------------------------------------------------
 elif selected == "IoT 역추적 관제":
     st.markdown("<h2>📡 IoT 센서 기반 원인 농가 역추적 (Reverse Tracking)</h2>", unsafe_allow_html=True)
@@ -518,7 +567,6 @@ elif selected == "IoT 역추적 관제":
                     emission = float(get_scalar(farm.get('Odor_Emission', 0)))
                     if emission <= 0: emission = 10 
                     
-                    # 배출량(사육두수 가중치) 대비 거리의 역제곱 법칙으로 발원 점수 산출
                     score = emission / (max(dist, 0.1) ** 2)
                     
                     suspects.append({
@@ -533,18 +581,18 @@ elif selected == "IoT 역추적 관제":
                     total_score += score
             
             if suspects:
-                # 점수를 백분율(확률)로 변환하고 내림차순 정렬
                 for s in suspects:
                     s['발원 확률(%)'] = round((s['_score'] / total_score) * 100, 1)
                 suspects = sorted(suspects, key=lambda x: x['발원 확률(%)'], reverse=True)
                 
                 for i, s in enumerate(suspects):
-                    if i == 0: # 1순위 타겟 (드론 마커)
+                    if i == 0: 
                         folium.Marker(
                             location=[s['lat'], s['lon']],
                             icon=folium.Icon(color='red', icon='plane'),
                             tooltip=f"🚁 최우선 타겟: {s['용의 농가명']} (확률: {s['발원 확률(%)']}%)"
                         ).add_to(m4)
+                        st.session_state['target_farm'] = s['용의 농가명']
                     else:
                         folium.CircleMarker(
                             location=[s['lat'], s['lon']], radius=6, color='orange', fill=True, fill_opacity=0.8,
