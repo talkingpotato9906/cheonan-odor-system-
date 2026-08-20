@@ -128,6 +128,18 @@ def load_data():
     df_farm = safe_read("천안시_가축사육업_정상영업_좌표완료_진짜최종.csv") 
     df_apt = safe_read("천안시_공동주택_최종마스터_좌표완료.csv") 
 
+    # 💡 [핵심 방어벽] 위도(lat), 경도(lon) 등 변형된 이름 자동 통일화
+    def rename_lat_lon(df):
+        if not df.empty:
+            lat_col = [c for c in df.columns if '위도' in c]
+            lon_col = [c for c in df.columns if '경도' in c]
+            if lat_col: df.rename(columns={lat_col[0]: '위도'}, inplace=True)
+            if lon_col: df.rename(columns={lon_col[0]: '경도'}, inplace=True)
+        return df
+    
+    df_farm = rename_lat_lon(df_farm)
+    df_apt = rename_lat_lon(df_apt)
+
     # 1. 공동주택 결측치 및 합계 행 제거
     if not df_apt.empty:
         df_apt = df_apt.dropna(subset=['공동주택명'])
@@ -138,11 +150,11 @@ def load_data():
         farm_name_col = [c for c in df_farm.columns if '사업장명' in c or '농가' in c]
         df_farm['농가식별명'] = df_farm[farm_name_col[0]] if farm_name_col else "미상 농가"
         
-        # 💡 [핵심 방어벽 1] 이름 없는 빈칸, '합계', '총계' 등 이상한 장소 제거
+        # 3. 이름 없는 빈칸, '합계', '총계' 등 이상한 장소 제거
         df_farm = df_farm.dropna(subset=['농가식별명'])
         df_farm = df_farm[~df_farm['농가식별명'].astype(str).str.contains('합계|총계|미상')]
         
-        # 💡 [핵심 방어벽 2] 사육두수 추출 버그 패치 ('사육면적' 제외)
+        # 4. 사육두수 추출 버그 패치 ('사육면적' 제외)
         if '사육두수' not in df_farm.columns:
             headcount_cols = [c for c in df_farm.columns if '두수' in c]
             if not headcount_cols:
@@ -151,7 +163,7 @@ def load_data():
         
         df_farm['사육두수'] = df_farm['사육두수'].apply(lambda x: float(str(x).replace(',', '')) if pd.notnull(x) else 0.0)
         
-        # 💡 [핵심 방어벽 3] 사육두수가 0인 '폐업/유령 장소' 완벽 제거
+        # 5. 사육두수가 0인 '폐업/유령 장소' 완벽 제거
         df_farm = df_farm[df_farm['사육두수'] > 0]
         
         species_weights = { '돼지': 10.9, '젖소': 0.6, '소': 0.4, '한우': 0.4, '닭': 0.2, '개': 2.0, '오리': 0.2 }
@@ -206,7 +218,7 @@ def calculate_cii(df_farm, df_apt, wind_dir, wind_speed):
     apt_cii_list = []
     for _, apt in df_apt.iterrows():
         try:
-            apt_lat, apt_lon = float(get_scalar(apt.get('위도(lat)', apt.get('위도', 0)))), float(get_scalar(apt.get('경도(lon)', apt.get('경도', 0))))
+            apt_lat, apt_lon = float(get_scalar(apt.get('위도', 0))), float(get_scalar(apt.get('경도', 0)))
             if apt_lat == 0 or apt_lon == 0 or pd.isna(apt_lat) or pd.isna(apt_lon): continue
             apt_households = float(str(get_scalar(apt.get(target_household_col, 100))).replace(',', ''))
         except: continue
@@ -266,7 +278,7 @@ with st.sidebar:
     st.markdown("### ☁️ 기상 컨트롤 패널")
     data_mode = st.radio("데이터 소스 선택", ["기상청 실시간 API", "수동 시뮬레이션"], index=0)
     
-    # 💡 Streamlit Secrets에서 API 키를 안전하게 직접 가져오도록 변경
+    # 💡 Streamlit Secrets에서 API 키를 안전하게 직접 가져오도록 변경 (UI 입력창 제거)
     w_dir, w_spd = 103.0, 2.5
     if data_mode == "기상청 실시간 API":
         api_dir, api_spd, api_msg = get_live_weather(os.getenv("KMA_API_KEY"))
@@ -317,7 +329,7 @@ if selected != st.session_state.active_tab:
 # ---------------------------------------------------------
 if selected == "실시간 악취 관제망":
     st.markdown("<h2>🗺️ 실시간 대기 확산 및 주민 피해 지수(CII) 관제</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p class='text-muted'>실시간 풍향({get_wind_direction_str(w_dir)}) 및 풍속({w_spd}m/s)을 바탕으로 악취의 이동 궤적과 아파트별 피해 규모를 시각화합니다.</p><hr>", unsafe_allow_html=True)
+    st.markdown(f"<p class='text-muted'>실시간 풍향({get_wind_direction_str(w_dir)}) 및 풍속({w_spd}m/s)을 바탕으로 악취의 이동 궤적과 아파트별 피해 규모 시각화합니다.</p><hr>", unsafe_allow_html=True)
     
     if not df_impact_apt.empty and not df_top_farm.empty:
         m = folium.Map(location=[36.815, 127.113], zoom_start=11, tiles="http://mt0.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}", attr="Google Maps")
