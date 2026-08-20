@@ -456,10 +456,8 @@ elif selected == "드론 비전 AI 단속":
                     risk = vision_data.get("risk_level", "5")
                     explanation = vision_data.get("detailed_explanation", "상세 설명이 제공되지 않았습니다.")
                     
-                    # 💡 UI 출력부 수정: 점수와 함께 상세 설명을 박스 안에 예쁘게 보여줍니다.
                     st.info(f"🔍 **판독 완료**: {', '.join(detected_items)} (위험도: {risk}/10)\n\n📝 **AI 상세 분석 내용**: {explanation}")
                     
-                    # 다른 탭(자동 경보 시스템 등)으로도 상세 설명이 넘어가도록 세션 업데이트
                     st.session_state['alert_info'] = f"발견된 문제: {', '.join(detected_items)} / 위험도: {risk}/10 / 상세내용: {explanation}"
                     
                     vision_data['date'] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -477,13 +475,19 @@ elif selected == "드론 비전 AI 단속":
                     
                     progress_bar.progress(75)
 
-                    # [STEP 4] LLM 최종 보고서 생성 (시계열 비교)
+                    # [STEP 4] LLM 최종 보고서 생성 (시계열 비교 유무 패치 완료)
                     status_text.markdown("### 📝 [4/4] Llama-3.1 70B 모델 기반 시계열 대조 및 보고서 작성 중...")
                     
+                    target_farm_row = df_farm_raw[df_farm_raw['농가식별명'] == selected_farm].iloc[0]
+                    farm_address = str(get_scalar(target_farm_row.get('지번주소', '소재지 파악 불가')))
+                    
+                    base_prompt = f"보고서 작성 시 [농가명], [소재지] 같은 빈칸(Placeholder)을 절대 쓰지 말고, 다음 실제 정보를 반드시 기입하세요.\n- 대상 농가명: {selected_farm}\n- 소재지: {farm_address}\n\n"
+                    
                     if past_data:
-                        prompt_msg = f"해당 농가의 과거 단속 데이터는 [{', '.join(past_data['detected_objects'])}] 였습니다. 그런데 현재 드론 데이터에서는 [{', '.join(detected_items)}] 가 탐지되었습니다. 이 두 가지를 비교하여 '과거에 없던 불법 증축물'이나 '악화된 환경'에 초점을 맞추어 변화된 점을 지적하고, RAG 법령({legal_context})을 근거로 법적 위반 여부 및 행정처분 공문 보고서를 작성하라."
+                        prompt_msg = base_prompt + f"해당 농가의 과거 단속 데이터는 [{', '.join(past_data['detected_objects'])}] 였습니다. 그런데 현재 드론 데이터에서는 [{', '.join(detected_items)}] 가 탐지되었습니다. 이 두 가지를 비교하여 '과거에 없던 불법 증축물'이나 '악화된 환경'에 초점을 맞추어 '과거 단속 데이터' 및 '변화된 점' 항목을 반드시 포함하여 지적하고, RAG 법령({legal_context})을 근거로 법적 위반 여부 및 행정처분 공문 보고서를 작성하라."
                     else:
-                        prompt_msg = f"AI 탐지 내용({', '.join(detected_items)}, 위험도 {risk})과 RAG 데이터({legal_context})를 종합하여 단속 보고서를 작성하라."
+                        # 💡 핵심 수정 사항: 과거 데이터가 없을 경우 해당 항목들을 절대 생성하지 말라고 엄격하게 통제(Negative Prompting)
+                        prompt_msg = base_prompt + f"AI 탐지 내용({', '.join(detected_items)}, 위험도 {risk})과 RAG 데이터({legal_context})를 종합하여 단속 보고서를 작성하라. ⚠️주의: 이 농가는 과거 단속 내역(DB)이 최초 수집되는 상태이므로, 보고서 양식에서 '과거 단속 데이터' 및 '변화된 점' 항목을 아예 생성하지 말고 절대 포함시키지 마라."
 
                     final_res = client.chat.completions.create(
                         model="meta/llama-3.1-70b-instruct",
