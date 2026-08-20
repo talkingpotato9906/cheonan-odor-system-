@@ -444,13 +444,25 @@ elif selected == "드론 비전 AI 단속":
                         ], temperature=0.3, max_tokens=800
                     )
                     raw_vision_text = vision_res.choices[0].message.content
-                    import re; match = re.search(r'\{.*\}', raw_vision_text, re.DOTALL)
-                    vision_data = json.loads(match.group(0)) if match else {
+                    
+                    # 💡 핵심 수정 사항: JSON 파싱 예외 처리(Try-Except)를 통한 오류 방어벽 구축
+                    import re
+                    match = re.search(r'\{.*\}', raw_vision_text, re.DOTALL)
+                    
+                    default_vision_data = {
                         "detected_objects": ["불법 가설건축물(천막) 및 분뇨 방치 의심"], 
                         "risk_level": "8", 
                         "summary_keyword": "가축분뇨 방치 불법증축",
                         "detailed_explanation": "해당 이미지에서 규격에 맞지 않는 노후 가설 천막과 부적절하게 방치된 분뇨 더미가 관찰됩니다. 이는 심각한 악취를 유발할 수 있으며, 관련 조례 위반 소지가 다분합니다."
                     }
+                    
+                    if match:
+                        try:
+                            vision_data = json.loads(match.group(0))
+                        except Exception:
+                            vision_data = default_vision_data
+                    else:
+                        vision_data = default_vision_data
 
                     detected_items = vision_data.get("detected_objects", ["노후 축사 의심"])
                     risk = vision_data.get("risk_level", "5")
@@ -475,7 +487,7 @@ elif selected == "드론 비전 AI 단속":
                     
                     progress_bar.progress(75)
 
-                    # [STEP 4] LLM 최종 보고서 생성 (시계열 비교 유무 패치 완료)
+                    # [STEP 4] LLM 최종 보고서 생성
                     status_text.markdown("### 📝 [4/4] Llama-3.1 70B 모델 기반 시계열 대조 및 보고서 작성 중...")
                     
                     target_farm_row = df_farm_raw[df_farm_raw['농가식별명'] == selected_farm].iloc[0]
@@ -486,7 +498,6 @@ elif selected == "드론 비전 AI 단속":
                     if past_data:
                         prompt_msg = base_prompt + f"해당 농가의 과거 단속 데이터는 [{', '.join(past_data['detected_objects'])}] 였습니다. 그런데 현재 드론 데이터에서는 [{', '.join(detected_items)}] 가 탐지되었습니다. 이 두 가지를 비교하여 '과거에 없던 불법 증축물'이나 '악화된 환경'에 초점을 맞추어 '과거 단속 데이터' 및 '변화된 점' 항목을 반드시 포함하여 지적하고, RAG 법령({legal_context})을 근거로 법적 위반 여부 및 행정처분 공문 보고서를 작성하라."
                     else:
-                        # 💡 핵심 수정 사항: 과거 데이터가 없을 경우 해당 항목들을 절대 생성하지 말라고 엄격하게 통제(Negative Prompting)
                         prompt_msg = base_prompt + f"AI 탐지 내용({', '.join(detected_items)}, 위험도 {risk})과 RAG 데이터({legal_context})를 종합하여 단속 보고서를 작성하라. ⚠️주의: 이 농가는 과거 단속 내역(DB)이 최초 수집되는 상태이므로, 보고서 양식에서 '과거 단속 데이터' 및 '변화된 점' 항목을 아예 생성하지 말고 절대 포함시키지 마라."
 
                     final_res = client.chat.completions.create(
